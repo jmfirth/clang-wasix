@@ -27,13 +27,13 @@ WASI_CFLAGS_LLVM="${WASI_CFLAGS_LLVM} -flto"
 WASI_LDFLAGS_LLVM="${WASI_LDFLAGS_LLVM} -flto -Wl,--strip-all"
 
 cat >Toolchain-WASI.cmake <<END
-include(${WASI_SDK_PATH}/share/cmake/wasi-sdk.cmake)
+include(${WASI_SDK_PATH}/share/cmake/wasi-sdk-p1.cmake)
 set(CMAKE_C_FLAGS "${WASI_CFLAGS}")
 set(CMAKE_CXX_FLAGS "${WASI_CFLAGS}")
 set(CMAKE_EXE_LINKER_FLAGS "${WASI_LDFLAGS}")
 END
 cat >Toolchain-WASI-LLVM.cmake <<END
-include(${WASI_SDK_PATH}/share/cmake/wasi-sdk.cmake)
+include(${WASI_SDK_PATH}/share/cmake/wasi-sdk-p1.cmake)
 set(CMAKE_C_FLAGS "${WASI_CFLAGS_LLVM}")
 set(CMAKE_CXX_FLAGS "${WASI_CFLAGS_LLVM}")
 set(CMAKE_EXE_LINKER_FLAGS "${WASI_LDFLAGS_LLVM}")
@@ -224,14 +224,14 @@ cmake --build compiler-rt-build --target install
 # There are many false positives with `check-symbols`, and the upstream eventually
 # moved to not check it by default too.
 mkdir -p wasi-libc-build
-make -C wasi-libc-src \
-  CC="ccache ${WASI_SDK_PATH}/bin/clang" \
-  AR=${WASI_SDK_PATH}/bin/ar \
-  NM=${WASI_SDK_PATH}/bin/nm \
-  TARGET_TRIPLE=${WASI_TARGET} \
-  BUILTINS_LIB=$(pwd)/wasi-prefix/usr/lib/wasm32-unknown-wasip1/libclang_rt.builtins.a \
-  SYSROOT=$(pwd)/wasi-prefix/usr \
-  OBJDIR=$(pwd)/wasi-libc-build
+cmake -B wasi-libc-build -S wasi-libc-src \
+  -DCMAKE_TOOLCHAIN_FILE=../Toolchain-WASI.cmake \
+  -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+  -DTARGET_TRIPLE=${WASI_TARGET} \
+  -DBUILTINS_LIB=$(pwd)/wasi-prefix/usr/lib/wasm32-unknown-wasip1/libclang_rt.builtins.a \
+  -DCMAKE_INSTALL_PREFIX=wasi-prefix/usr
+cmake --build wasi-libc-build --target install
 
 # Options below heavily based on wasi-sdk.
 mkdir -p libcxx-build
