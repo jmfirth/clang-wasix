@@ -8,11 +8,36 @@ WASI_SDK_URL=https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-
 if ! [ -d ${WASI_SDK} ]; then curl -L ${WASI_SDK_URL} | tar xzf -; fi
 WASI_SDK_PATH=$(pwd)/${WASI_SDK}
 
-WASI_TARGET="wasm32-wasip1"
+# Firebox Phase 1.2 override: if FIREBOX_SYSROOT is set, link the LLVM
+# binary itself against our patched wasix-libc instead of stock wasi-libc.
+# This is what gives the rebuilt clang fork/exec/proc_spawn semantics so
+# the driver can subprocess cc1 + wasm-ld at runtime inside Firebox.
+#
+# Note: only the LLVM binary's own linkage changes (WASI_CFLAGS_LLVM +
+# WASI_LDFLAGS_LLVM). The compiler-rt / wasi-libc / libcxx runtime
+# artifacts installed into wasi-prefix/ still build against upstream
+# wasi-sdk until Phase 1.2c layers EH/PIC variants on top.
+if [ -n "${FIREBOX_SYSROOT:-}" ]; then
+    WASI_TARGET="${FIREBOX_TARGET:-wasm32-wasi-threads}"
+    # Explicit feature flags rather than -mcpu=lime1 — the lime1 bundle
+    # includes reference-types which may conflict with the threads ABI.
+    FIREBOX_WASI_CFLAGS_LLVM="--sysroot ${FIREBOX_SYSROOT} -matomics -mbulk-memory -mmutable-globals -pthread -mthread-model posix"
+    FIREBOX_WASI_LDFLAGS_LLVM="--sysroot ${FIREBOX_SYSROOT} -Wl,--shared-memory,--import-memory,--max-memory=4294967296"
+else
+    WASI_TARGET="wasm32-wasip1"
+    FIREBOX_WASI_CFLAGS_LLVM=""
+    FIREBOX_WASI_LDFLAGS_LLVM=""
+fi
+
 WASI_CFLAGS="--sysroot ${WASI_SDK_PATH}/share/wasi-sysroot -mcpu=lime1"
 WASI_LDFLAGS="--sysroot ${WASI_SDK_PATH}/share/wasi-sysroot"
-WASI_CFLAGS_LLVM="${WASI_CFLAGS}"
-WASI_LDFLAGS_LLVM="${WASI_LDFLAGS}"
+if [ -n "${FIREBOX_SYSROOT:-}" ]; then
+    WASI_CFLAGS_LLVM="${FIREBOX_WASI_CFLAGS_LLVM}"
+    WASI_LDFLAGS_LLVM="${FIREBOX_WASI_LDFLAGS_LLVM}"
+else
+    WASI_CFLAGS_LLVM="${WASI_CFLAGS}"
+    WASI_LDFLAGS_LLVM="${WASI_LDFLAGS}"
+fi
 # LLVM has some (unreachable in our configuration) calls to mmap.
 WASI_CFLAGS_LLVM="${WASI_CFLAGS_LLVM} -D_WASI_EMULATED_MMAN"
 WASI_LDFLAGS_LLVM="${WASI_LDFLAGS_LLVM} -lwasi-emulated-mman"
