@@ -36,7 +36,10 @@ if [ -n "${FIREBOX_SYSROOT:-}" ]; then
     # -isystem (-I would come after sysroot auto-discovery which finds
     # nothing in our sysroot and gives up).
     FIREBOX_WASI_CFLAGS_LLVM="-matomics -mbulk-memory -mmutable-globals -mthread-model posix -isystem ${WASI_SDK_PATH}/share/wasi-sysroot/include/wasm32-wasi-threads/c++/v1"
-    FIREBOX_WASI_LDFLAGS_LLVM="-Wl,--shared-memory,--max-memory=4294967296 -L${WASI_SDK_PATH}/share/wasi-sysroot/lib/wasm32-wasi-threads"
+    # Library search order matters: our sysroot MUST come first so that
+    # -lc resolves to our wasix-libc (which has __wasi_init_signals,
+    # __wasi_proc_exit2 etc.) before clang's auto-search reaches wasi-sdk.
+    FIREBOX_WASI_LDFLAGS_LLVM="-L${FIREBOX_SYSROOT}/lib/${WASI_TARGET} -Wl,--shared-memory,--max-memory=4294967296 -L${WASI_SDK_PATH}/share/wasi-sysroot/lib/wasm32-wasi-threads"
 else
     WASI_TARGET="wasm32-wasip1"
     FIREBOX_WASI_CFLAGS_LLVM=""
