@@ -1,6 +1,6 @@
 [submodule "llvm-src"]
 	path = llvm-src
-	url = https://codeberg.org/YoWASP/llvm-project
+	url = https://github.com/jmfirth/llvm-project-wasix.git
 [submodule "wasi-sdk-src"]
 	path = wasi-sdk-src
 	url = https://github.com/WebAssembly/wasi-sdk
