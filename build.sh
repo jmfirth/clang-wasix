@@ -19,16 +19,17 @@ WASI_SDK_PATH=$(pwd)/${WASI_SDK}
 # wasi-sdk until Phase 1.2c layers EH/PIC variants on top.
 if [ -n "${FIREBOX_SYSROOT:-}" ]; then
     WASI_TARGET="${FIREBOX_TARGET:-wasm32-wasi-threads}"
-    # Explicit feature flags rather than -mcpu=lime1 — the lime1 bundle
-    # includes reference-types which may conflict with the threads ABI.
-    # --target= override is required: wasi-sdk-p1.cmake toolchain file
-    # sets CMAKE_C_COMPILER_TARGET=wasm32-wasip1 by default, which makes
-    # clang look for libraries under <sysroot>/lib/wasm32-wasip1/ — but
-    # our sysroot-patched-threads lays libraries out under
-    # lib/wasm32-wasi-threads/. The --target= flag overrides CMake's
-    # default (clang uses the last --target in the command line).
-    FIREBOX_WASI_CFLAGS_LLVM="--target=${WASI_TARGET} --sysroot ${FIREBOX_SYSROOT} -matomics -mbulk-memory -mmutable-globals -pthread -mthread-model posix"
-    FIREBOX_WASI_LDFLAGS_LLVM="--target=${WASI_TARGET} --sysroot ${FIREBOX_SYSROOT} -Wl,--shared-memory,--import-memory,--max-memory=4294967296"
+    # wasi-sdk-pthread.cmake (selected below when FIREBOX_SYSROOT is set)
+    # already provides:
+    #   - triple = wasm32-wasi-threads
+    #   - CMAKE_C_COMPILER_TARGET / CXX / ASM
+    #   - -pthread in C/CXX flags
+    #   - -Wl,--import-memory -Wl,--export-memory in linker flags
+    # We only need to add atomics + bulk-memory + mutable-globals features
+    # (required by our sysroot; pthread toolchain doesn't pass these) and
+    # --shared-memory for the actual memory segment config.
+    FIREBOX_WASI_CFLAGS_LLVM="-matomics -mbulk-memory -mmutable-globals -mthread-model posix"
+    FIREBOX_WASI_LDFLAGS_LLVM="-Wl,--shared-memory,--max-memory=4294967296"
 else
     WASI_TARGET="wasm32-wasip1"
     FIREBOX_WASI_CFLAGS_LLVM=""
@@ -63,12 +64,26 @@ set(CMAKE_C_FLAGS "${WASI_CFLAGS}")
 set(CMAKE_CXX_FLAGS "${WASI_CFLAGS}")
 set(CMAKE_EXE_LINKER_FLAGS "${WASI_LDFLAGS}")
 END
-cat >Toolchain-WASI-LLVM.cmake <<END
+if [ -n "${FIREBOX_SYSROOT:-}" ]; then
+    # Use wasi-sdk's pthread toolchain — it already sets the right triple
+    # (wasm32-wasi-threads), CMAKE_C_COMPILER_TARGET, --import-memory,
+    # --export-memory, and -pthread. We just override CMAKE_SYSROOT to
+    # point at our patched wasix-libc sysroot.
+    cat >Toolchain-WASI-LLVM.cmake <<END
+include(${WASI_SDK_PATH}/share/cmake/wasi-sdk-pthread.cmake)
+set(CMAKE_SYSROOT "${FIREBOX_SYSROOT}")
+set(CMAKE_C_FLAGS "${WASI_CFLAGS_LLVM}")
+set(CMAKE_CXX_FLAGS "${WASI_CFLAGS_LLVM}")
+set(CMAKE_EXE_LINKER_FLAGS "${WASI_LDFLAGS_LLVM}")
+END
+else
+    cat >Toolchain-WASI-LLVM.cmake <<END
 include(${WASI_SDK_PATH}/share/cmake/wasi-sdk-p1.cmake)
 set(CMAKE_C_FLAGS "${WASI_CFLAGS_LLVM}")
 set(CMAKE_CXX_FLAGS "${WASI_CFLAGS_LLVM}")
 set(CMAKE_EXE_LINKER_FLAGS "${WASI_LDFLAGS_LLVM}")
 END
+fi
 
 # The clang binary built as `Debug` doesn't pass Wasm validation.
 # (This has cost me a hour of my life.)
