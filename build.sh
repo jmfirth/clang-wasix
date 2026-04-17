@@ -32,7 +32,10 @@ if [ -n "${FIREBOX_SYSROOT:-}" ]; then
     # (our sysroot only has libc — libcxx comes from wasi-sdk's prebuilt in
     # Phase 1.2a; Phase 1.2c will replace with a libcxx built against our
     # sysroot + EH).
-    FIREBOX_WASI_CFLAGS_LLVM="-matomics -mbulk-memory -mmutable-globals -mthread-model posix -I${WASI_SDK_PATH}/share/wasi-sysroot/include/wasm32-wasi-threads"
+    # C++ headers: use wasi-sdk's prebuilt threads-variant c++/v1 tree via
+    # -isystem (-I would come after sysroot auto-discovery which finds
+    # nothing in our sysroot and gives up).
+    FIREBOX_WASI_CFLAGS_LLVM="-matomics -mbulk-memory -mmutable-globals -mthread-model posix -isystem ${WASI_SDK_PATH}/share/wasi-sysroot/include/wasm32-wasi-threads/c++/v1"
     FIREBOX_WASI_LDFLAGS_LLVM="-Wl,--shared-memory,--max-memory=4294967296 -L${WASI_SDK_PATH}/share/wasi-sysroot/lib/wasm32-wasi-threads"
 else
     WASI_TARGET="wasm32-wasip1"
