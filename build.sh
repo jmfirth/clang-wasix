@@ -25,11 +25,15 @@ if [ -n "${FIREBOX_SYSROOT:-}" ]; then
     #   - CMAKE_C_COMPILER_TARGET / CXX / ASM
     #   - -pthread in C/CXX flags
     #   - -Wl,--import-memory -Wl,--export-memory in linker flags
-    # We only need to add atomics + bulk-memory + mutable-globals features
-    # (required by our sysroot; pthread toolchain doesn't pass these) and
-    # --shared-memory for the actual memory segment config.
-    FIREBOX_WASI_CFLAGS_LLVM="-matomics -mbulk-memory -mmutable-globals -mthread-model posix"
-    FIREBOX_WASI_LDFLAGS_LLVM="-Wl,--shared-memory,--max-memory=4294967296"
+    #
+    # We add: atomics + bulk-memory + mutable-globals features (required
+    # by our sysroot; pthread toolchain doesn't pass them), --shared-memory
+    # for the memory segment config, and -L for wasi-sdk's libc++/libc++abi
+    # (our sysroot only has libc — libcxx comes from wasi-sdk's prebuilt in
+    # Phase 1.2a; Phase 1.2c will replace with a libcxx built against our
+    # sysroot + EH).
+    FIREBOX_WASI_CFLAGS_LLVM="-matomics -mbulk-memory -mmutable-globals -mthread-model posix -I${WASI_SDK_PATH}/share/wasi-sysroot/include/wasm32-wasi-threads"
+    FIREBOX_WASI_LDFLAGS_LLVM="-Wl,--shared-memory,--max-memory=4294967296 -L${WASI_SDK_PATH}/share/wasi-sysroot/lib/wasm32-wasi-threads"
 else
     WASI_TARGET="wasm32-wasip1"
     FIREBOX_WASI_CFLAGS_LLVM=""
