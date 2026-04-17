@@ -21,8 +21,14 @@ if [ -n "${FIREBOX_SYSROOT:-}" ]; then
     WASI_TARGET="${FIREBOX_TARGET:-wasm32-wasi-threads}"
     # Explicit feature flags rather than -mcpu=lime1 — the lime1 bundle
     # includes reference-types which may conflict with the threads ABI.
-    FIREBOX_WASI_CFLAGS_LLVM="--sysroot ${FIREBOX_SYSROOT} -matomics -mbulk-memory -mmutable-globals -pthread -mthread-model posix"
-    FIREBOX_WASI_LDFLAGS_LLVM="--sysroot ${FIREBOX_SYSROOT} -Wl,--shared-memory,--import-memory,--max-memory=4294967296"
+    # --target= override is required: wasi-sdk-p1.cmake toolchain file
+    # sets CMAKE_C_COMPILER_TARGET=wasm32-wasip1 by default, which makes
+    # clang look for libraries under <sysroot>/lib/wasm32-wasip1/ — but
+    # our sysroot-patched-threads lays libraries out under
+    # lib/wasm32-wasi-threads/. The --target= flag overrides CMake's
+    # default (clang uses the last --target in the command line).
+    FIREBOX_WASI_CFLAGS_LLVM="--target=${WASI_TARGET} --sysroot ${FIREBOX_SYSROOT} -matomics -mbulk-memory -mmutable-globals -pthread -mthread-model posix"
+    FIREBOX_WASI_LDFLAGS_LLVM="--target=${WASI_TARGET} --sysroot ${FIREBOX_SYSROOT} -Wl,--shared-memory,--import-memory,--max-memory=4294967296"
 else
     WASI_TARGET="wasm32-wasip1"
     FIREBOX_WASI_CFLAGS_LLVM=""
