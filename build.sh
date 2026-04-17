@@ -77,9 +77,17 @@ END
 if [ -n "${FIREBOX_SYSROOT:-}" ]; then
     # Use wasi-sdk's pthread toolchain — it already sets the right triple
     # (wasm32-wasi-threads), CMAKE_C_COMPILER_TARGET, --import-memory,
-    # --export-memory, and -pthread. We just override CMAKE_SYSROOT to
-    # point at our patched wasix-libc sysroot.
+    # --export-memory, and -pthread. We override CMAKE_SYSROOT to point
+    # at our patched wasix-libc sysroot.
+    #
+    # BUG WORKAROUND: wasi-sdk-pthread.cmake (unlike wasi-sdk-p1.cmake)
+    # does NOT append the cmake dir to CMAKE_MODULE_PATH, which means
+    # Platform/WASI.cmake (which sets WASI=1) never loads. Downstream,
+    # LLVM's HandleLLVMOptions.cmake fails with "Unable to determine
+    # platform" because elseif(WASI) evaluates false. Fix by prepending
+    # the wasi-sdk cmake dir to CMAKE_MODULE_PATH ourselves.
     cat >Toolchain-WASI-LLVM.cmake <<END
+list(APPEND CMAKE_MODULE_PATH "${WASI_SDK_PATH}/share/cmake")
 include(${WASI_SDK_PATH}/share/cmake/wasi-sdk-pthread.cmake)
 set(CMAKE_SYSROOT "${FIREBOX_SYSROOT}")
 set(CMAKE_C_FLAGS "${WASI_CFLAGS_LLVM}")
