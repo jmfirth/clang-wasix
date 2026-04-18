@@ -19,6 +19,14 @@ WASI_SDK_PATH=$(pwd)/${WASI_SDK}
 # wasi-sdk until Phase 1.2c layers EH/PIC variants on top.
 if [ -n "${FIREBOX_SYSROOT:-}" ]; then
     WASI_TARGET="${FIREBOX_TARGET:-wasm32-wasi-threads}"
+    # Default target triple the BUILT clang driver will emit when invoked
+    # without -target. wasi-sdk-32's pthread toolchain uses the deprecated
+    # "wasm32-wasi-threads" internally for its own library layout; the
+    # modern equivalent is "wasm32-wasip1-threads" and is what we want the
+    # rebuilt clang to default to. Decouple these: build-time library
+    # resolution uses WASI_TARGET (wasm32-wasi-threads); the driver's
+    # emitted default triple uses FIREBOX_DEFAULT_TRIPLE.
+    FIREBOX_DEFAULT_TRIPLE="${FIREBOX_DEFAULT_TRIPLE:-wasm32-wasip1-threads}"
     # wasi-sdk-pthread.cmake (selected below when FIREBOX_SYSROOT is set)
     # already provides:
     #   - triple = wasm32-wasi-threads
@@ -40,8 +48,37 @@ if [ -n "${FIREBOX_SYSROOT:-}" ]; then
     # -lc resolves to our wasix-libc (which has __wasi_init_signals,
     # __wasi_proc_exit2 etc.) before clang's auto-search reaches wasi-sdk.
     FIREBOX_WASI_LDFLAGS_LLVM="-L${FIREBOX_SYSROOT}/lib/${WASI_TARGET} -Wl,--shared-memory,--max-memory=4294967296 -L${WASI_SDK_PATH}/share/wasi-sysroot/lib/wasm32-wasi-threads"
+    # #119 Phase 1.2c: force retention of wasix-libc's subprocess wrappers
+    # so LTO's whole-program DCE can't prune the __wasi_proc_spawn2 /
+    # __wasi_proc_fork / __wasi_proc_exec2 imports out of the driver.
+    #
+    # Context: YoWASP's upstream design tests the built driver only with
+    # "clang --version", which never reaches llvm::sys::ExecuteAndWait —
+    # so Thin-LTO DCEs the entire posix_spawn call graph along with the
+    # wasix imports. In-sandbox self-hosting REQUIRES the driver to
+    # subprocess cc1 and wasm-ld, which needs those imports live.
+    #
+    # The fix is surgical: --undefined=<sym> forces the linker to treat
+    # <sym> as referenced from the root, which anchors its call graph
+    # against LTO DCE and pulls the needed .o from libc.a. We pin the
+    # POSIX-level wrappers (posix_spawn, fork, execve, execvp, waitpid)
+    # AND the low-level wasix-libc imports (__wasi_proc_spawn2,
+    # __wasi_proc_fork, __wasi_proc_exec2, __wasi_proc_join) so both
+    # layers are retained regardless of which one the driver ends up
+    # calling after Thin-LTO's cross-module inlining.
+    FIREBOX_WASI_LDFLAGS_LLVM="${FIREBOX_WASI_LDFLAGS_LLVM} \
+-Wl,--undefined=posix_spawn \
+-Wl,--undefined=fork \
+-Wl,--undefined=execve \
+-Wl,--undefined=execvp \
+-Wl,--undefined=waitpid \
+-Wl,--undefined=__wasi_proc_spawn2 \
+-Wl,--undefined=__wasi_proc_fork \
+-Wl,--undefined=__wasi_proc_exec2 \
+-Wl,--undefined=__wasi_proc_join"
 else
     WASI_TARGET="wasm32-wasip1"
+    FIREBOX_DEFAULT_TRIPLE="wasm32-wasip1"
     FIREBOX_WASI_CFLAGS_LLVM=""
     FIREBOX_WASI_LDFLAGS_LLVM=""
 fi
@@ -151,7 +188,7 @@ cmake -B llvm-build -S llvm-src/llvm \
   -DLLVM_INCLUDE_BENCHMARKS=OFF \
   -DLLVM_INCLUDE_DOCS=OFF \
   -DLLVM_TARGETS_TO_BUILD=WebAssembly \
-  -DLLVM_DEFAULT_TARGET_TRIPLE=${WASI_TARGET} \
+  -DLLVM_DEFAULT_TARGET_TRIPLE=${FIREBOX_DEFAULT_TRIPLE} \
   -DLLVM_TOOL_BUGPOINT_BUILD=OFF \
   -DLLVM_TOOL_BUGPOINT_PASSES_BUILD=OFF \
   -DLLVM_TOOL_DSYMUTIL_BUILD=OFF \
