@@ -77,6 +77,13 @@ fi
 # LLVM has some (unreachable in our configuration) calls to mmap.
 WASI_CFLAGS_LLVM="${WASI_CFLAGS_LLVM} -D_WASI_EMULATED_MMAN"
 WASI_LDFLAGS_LLVM="${WASI_LDFLAGS_LLVM} -lwasi-emulated-mman"
+# wasix-libc's <sys/wait.h> transitively pulls <sys/resource.h> when _GNU_SOURCE
+# is defined (for wait3/wait4/rusage). <sys/resource.h> has a #error guard
+# requiring _WASI_EMULATED_PROCESS_CLOCKS. We don't actually call getrusage()
+# (Program.inc's wasi branch uses waitpid without resource accounting) — but
+# the header still needs to parse. Enable emulation and link the stubs.
+WASI_CFLAGS_LLVM="${WASI_CFLAGS_LLVM} -D_WASI_EMULATED_PROCESS_CLOCKS"
+WASI_LDFLAGS_LLVM="${WASI_LDFLAGS_LLVM} -lwasi-emulated-process-clocks"
 # Depending on the code being compiled, both Clang and LLD can consume unbounded amounts of memory.
 WASI_LDFLAGS_LLVM="${WASI_LDFLAGS_LLVM} -Wl,--max-memory=4294967296"
 # Compiling C++ code requires a lot of stack space and can overflow and corrupt the heap.
