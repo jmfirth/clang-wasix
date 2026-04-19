@@ -48,34 +48,16 @@ if [ -n "${FIREBOX_SYSROOT:-}" ]; then
     # -lc resolves to our wasix-libc (which has __wasi_init_signals,
     # __wasi_proc_exit2 etc.) before clang's auto-search reaches wasi-sdk.
     FIREBOX_WASI_LDFLAGS_LLVM="-L${FIREBOX_SYSROOT}/lib/${WASI_TARGET} -Wl,--shared-memory,--max-memory=4294967296 -L${WASI_SDK_PATH}/share/wasi-sysroot/lib/wasm32-wasi-threads"
-    # #119 Phase 1.2c: force retention of wasix-libc's subprocess wrappers
-    # so LTO's whole-program DCE can't prune the __wasi_proc_spawn2 /
-    # __wasi_proc_fork / __wasi_proc_exec2 imports out of the driver.
-    #
-    # Context: YoWASP's upstream design tests the built driver only with
-    # "clang --version", which never reaches llvm::sys::ExecuteAndWait —
-    # so Thin-LTO DCEs the entire posix_spawn call graph along with the
-    # wasix imports. In-sandbox self-hosting REQUIRES the driver to
-    # subprocess cc1 and wasm-ld, which needs those imports live.
-    #
-    # The fix is surgical: --undefined=<sym> forces the linker to treat
-    # <sym> as referenced from the root, which anchors its call graph
-    # against LTO DCE and pulls the needed .o from libc.a. We pin the
-    # POSIX-level wrappers (posix_spawn, fork, execve, execvp, waitpid)
-    # AND the low-level wasix-libc imports (__wasi_proc_spawn2,
-    # __wasi_proc_fork, __wasi_proc_exec2, __wasi_proc_join) so both
-    # layers are retained regardless of which one the driver ends up
-    # calling after Thin-LTO's cross-module inlining.
-    FIREBOX_WASI_LDFLAGS_LLVM="${FIREBOX_WASI_LDFLAGS_LLVM} \
--Wl,--undefined=posix_spawn \
--Wl,--undefined=fork \
--Wl,--undefined=execve \
--Wl,--undefined=execvp \
--Wl,--undefined=waitpid \
--Wl,--undefined=__wasi_proc_spawn2 \
--Wl,--undefined=__wasi_proc_fork \
--Wl,--undefined=__wasi_proc_exec2 \
--Wl,--undefined=__wasi_proc_join"
+    # #119 Phase 1.2d: the real retention mechanism is the source-level
+    # un-stubbing of Support/Unix/Program.inc in the llvm-project-wasix
+    # fork (commit 504f5160f). YoWASP upstream had `#if defined(__wasi__)`
+    # preprocessor guards that deleted Execute() / Wait() /
+    # findProgramByName() / RedirectIO() outright — no call site, no
+    # amount of --undefined= retention could pull in the subprocess
+    # imports. With the stubs removed, the normal HAVE_POSIX_SPAWN
+    # code path compiles in for wasi and the __wasi_proc_* imports
+    # appear naturally. (Phase 1.2c's --undefined= cargo-cult flags
+    # dropped — they had byte-for-byte zero effect.)
 else
     WASI_TARGET="wasm32-wasip1"
     FIREBOX_DEFAULT_TRIPLE="wasm32-wasip1"
