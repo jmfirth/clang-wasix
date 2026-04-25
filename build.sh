@@ -86,9 +86,31 @@ WASI_CFLAGS_LLVM="${WASI_CFLAGS_LLVM} -D_WASI_EMULATED_PROCESS_CLOCKS"
 WASI_LDFLAGS_LLVM="${WASI_LDFLAGS_LLVM} -lwasi-emulated-process-clocks"
 # Depending on the code being compiled, both Clang and LLD can consume unbounded amounts of memory.
 WASI_LDFLAGS_LLVM="${WASI_LDFLAGS_LLVM} -Wl,--max-memory=4294967296"
-# Compiling C++ code requires a lot of stack space and can overflow and corrupt the heap.
-# (For example, `#include <iostream>` alone does it in a build with the default stack size.)
-WASI_LDFLAGS_LLVM="${WASI_LDFLAGS_LLVM} -Wl,-z,stack-size=8388608,--stack-first"
+# LLVM/Clang are deeply recursive on heavy C++ TUs (template metaprogramming,
+# Sema AST walks, ConstantFolder), and the WASM stack reservation is a hard
+# upper bound — there is no per-frame guard page like Linux pthread stacks.
+# Empirically, 8 MiB was sufficient for ordinary user code (and was enough
+# for `#include <iostream>` — the historical floor that motivated the bump
+# from wasi-sdk's 64 KiB default), but compiling clang's own Sema layer
+# (e.g. SemaARM.cpp at -O3 with the full LLVM stage-2 -W kit including
+# -Werror -Wall -Wextra -Wnon-virtual-dtor -Woverloaded-virtual etc.)
+# overflows it with `RuntimeError: call stack exhausted` from the wasmer host.
+# Bisection (2026-04-24): 8 MiB fails immediately. 32 MiB passes for SemaARM
+# at -O3 with a minimal -W kit (just -Wall -Wextra) but still fails when the
+# warning-analyzer set is fully enabled (the stage-2 build's flag set, which
+# fires hundreds of inheritance/string/format analyzers per TU). The
+# warning-analyzer pass walks the same AST as Sema so it doubles the deepest
+# recursion. 64 MiB gives ~8x the original 8 MiB and ~2x the validated 32 MiB
+# floor, with margin for any future TU heavier than SemaARM.
+# Override via FIREBOX_LLVM_STACK_SIZE for tuning.
+# Costs: --stack-first means initial-memory is at least stack-size +
+# data-segment size; bumping to 64 MiB raises every fresh `llvm` boot's
+# initial linear memory from ~17 MiB (8 MiB stack + ~9 MiB data) to ~73 MiB.
+# That cost is acceptable for a compiler atom — the warm-cache compile path
+# (cmake/ninja/make running clang as a child) doesn't pay it per-edge,
+# only per-process-spawn.
+LLVM_STACK_SIZE="${FIREBOX_LLVM_STACK_SIZE:-67108864}"
+WASI_LDFLAGS_LLVM="${WASI_LDFLAGS_LLVM} -Wl,-z,stack-size=${LLVM_STACK_SIZE},--stack-first"
 # Some of the host APIs that are statically required by LLVM (notably threading) are dynamically
 # never used. An LTO build removes imports of these APIs, simplifying deployment.
 WASI_CFLAGS_LLVM="${WASI_CFLAGS_LLVM} -flto"
